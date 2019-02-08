@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -64,7 +64,7 @@ public class PickerBottomLayout extends FrameLayout {
         doneButtonBadgeTextView.setGravity(Gravity.CENTER);
         Drawable drawable;
         if (isDarkTheme) {
-            drawable = getResources().getDrawable(R.drawable.photobadge);
+            drawable = Theme.createRoundRectDrawable(AndroidUtilities.dp(11), 0xff66bffa);
         } else {
             drawable = Theme.createRoundRectDrawable(AndroidUtilities.dp(11), Theme.getColor(Theme.key_picker_badge));
         }

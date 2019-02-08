@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -32,6 +32,7 @@ public class BotKeyboardView extends LinearLayout {
     private boolean isFullSize;
     private int buttonHeight;
     private ArrayList<TextView> buttonViews = new ArrayList<>();
+    private ScrollView scrollView;
 
     public interface BotKeyboardViewDelegate {
         void didPressedButton(TLRPC.KeyboardButton button);
@@ -42,7 +43,7 @@ public class BotKeyboardView extends LinearLayout {
 
         setOrientation(VERTICAL);
 
-        ScrollView scrollView = new ScrollView(context);
+        scrollView = new ScrollView(context);
         addView(scrollView);
         container = new LinearLayout(context);
         container.setOrientation(VERTICAL);
@@ -87,6 +88,7 @@ public class BotKeyboardView extends LinearLayout {
         botButtons = buttons;
         container.removeAllViews();
         buttonViews.clear();
+        scrollView.scrollTo(0, 0);
 
         if (buttons != null && botButtons.rows.size() != 0) {
             isFullSize = !buttons.resize;

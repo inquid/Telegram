@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.messenger;
@@ -20,11 +20,11 @@ public class UserObject {
     }
 
     public static boolean isContact(TLRPC.User user) {
-        return user instanceof TLRPC.TL_userContact_old2 || user.contact || user.mutual_contact;
+        return user != null && (user instanceof TLRPC.TL_userContact_old2 || user.contact || user.mutual_contact);
     }
 
     public static boolean isUserSelf(TLRPC.User user) {
-        return user instanceof TLRPC.TL_userSelf_old3 || user.self;
+        return user != null && (user instanceof TLRPC.TL_userSelf_old3 || user.self);
     }
 
     public static String getUserName(TLRPC.User user) {
@@ -36,12 +36,18 @@ public class UserObject {
     }
 
     public static String getFirstName(TLRPC.User user) {
+        return getFirstName(user, true);
+    }
+
+    public static String getFirstName(TLRPC.User user, boolean allowShort) {
         if (user == null || isDeleted(user)) {
             return "DELETED";
         }
         String name = user.first_name;
-        if (name == null || name.length() == 0) {
+        if (TextUtils.isEmpty(name)) {
             name = user.last_name;
+        } else if (!allowShort && name.length() <= 2) {
+            return ContactsController.formatName(user.first_name, user.last_name);
         }
         return !TextUtils.isEmpty(name) ? name : LocaleController.getString("HiddenName", R.string.HiddenName);
     }

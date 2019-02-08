@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -13,7 +13,6 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -24,8 +23,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.R;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.Theme;
 
 public class ScrollSlidingTabStrip extends HorizontalScrollView {
 
@@ -88,11 +89,7 @@ public class ScrollSlidingTabStrip extends HorizontalScrollView {
             return;
         }
         View tab = tabsContainer.getChildAt(num);
-        if (Build.VERSION.SDK_INT >= 15) {
-            tab.callOnClick();
-        } else {
-            tab.performClick();
-        }
+        tab.performClick();
     }
 
     public TextView addIconTabWithCounter(Drawable drawable) {
@@ -104,12 +101,7 @@ public class ScrollSlidingTabStrip extends HorizontalScrollView {
         ImageView imageView = new ImageView(getContext());
         imageView.setImageDrawable(drawable);
         imageView.setScaleType(ImageView.ScaleType.CENTER);
-        tab.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                delegate.onPageSelected(position);
-            }
-        });
+        tab.setOnClickListener(v -> delegate.onPageSelected(position));
         tab.addView(imageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         tab.setSelected(position == currentPosition);
@@ -117,9 +109,9 @@ public class ScrollSlidingTabStrip extends HorizontalScrollView {
         TextView textView = new TextView(getContext());
         textView.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-        textView.setTextColor(0xffffffff);
+        textView.setTextColor(Theme.getColor(Theme.key_chat_emojiPanelBadgeText));
         textView.setGravity(Gravity.CENTER);
-        textView.setBackgroundResource(R.drawable.sticker_badge);
+        textView.setBackgroundDrawable(Theme.createRoundRectDrawable(AndroidUtilities.dp(9), Theme.getColor(Theme.key_chat_emojiPanelBadgeBackground)));
         textView.setMinWidth(AndroidUtilities.dp(18));
         textView.setPadding(AndroidUtilities.dp(5), 0, AndroidUtilities.dp(5), AndroidUtilities.dp(1));
         tab.addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 18, Gravity.TOP | Gravity.LEFT, 26, 6, 0, 0));
@@ -133,32 +125,44 @@ public class ScrollSlidingTabStrip extends HorizontalScrollView {
         tab.setFocusable(true);
         tab.setImageDrawable(drawable);
         tab.setScaleType(ImageView.ScaleType.CENTER);
-        tab.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                delegate.onPageSelected(position);
-            }
-        });
+        tab.setOnClickListener(v -> delegate.onPageSelected(position));
         tabsContainer.addView(tab);
         tab.setSelected(position == currentPosition);
     }
 
-    public void addStickerTab(TLRPC.Document sticker) {
+    public void addStickerTab(TLRPC.Chat chat) {
         final int position = tabCount++;
         FrameLayout tab = new FrameLayout(getContext());
         tab.setFocusable(true);
-        tab.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                delegate.onPageSelected(position);
-            }
-        });
+        tab.setOnClickListener(v -> delegate.onPageSelected(position));
         tabsContainer.addView(tab);
         tab.setSelected(position == currentPosition);
         BackupImageView imageView = new BackupImageView(getContext());
-        if (sticker != null && sticker.thumb != null) {
-            imageView.setImage(sticker.thumb.location, null, "webp", null);
+        imageView.setRoundRadius(AndroidUtilities.dp(15));
+        TLRPC.FileLocation photo = null;
+
+        AvatarDrawable avatarDrawable = new AvatarDrawable();
+        if (chat.photo != null) {
+            photo = chat.photo.photo_small;
         }
+        avatarDrawable.setTextSize(AndroidUtilities.dp(14));
+        avatarDrawable.setInfo(chat);
+        imageView.setImage(photo, "50_50", avatarDrawable, chat);
+
+        imageView.setAspectFit(true);
+        tab.addView(imageView, LayoutHelper.createFrame(30, 30, Gravity.CENTER));
+    }
+
+    public void addStickerTab(TLRPC.Document sticker, Object parentObject) {
+        final int position = tabCount++;
+        FrameLayout tab = new FrameLayout(getContext());
+        tab.setTag(sticker);
+        tab.setTag(R.id.parent_tag, parentObject);
+        tab.setFocusable(true);
+        tab.setOnClickListener(v -> delegate.onPageSelected(position));
+        tabsContainer.addView(tab);
+        tab.setSelected(position == currentPosition);
+        BackupImageView imageView = new BackupImageView(getContext());
         imageView.setAspectFit(true);
         tab.addView(imageView, LayoutHelper.createFrame(30, 30, Gravity.CENTER));
     }
@@ -191,8 +195,61 @@ public class ScrollSlidingTabStrip extends HorizontalScrollView {
     }
 
     @Override
+    protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        setImages();
+    }
+
+    public void setImages() {
+        int tabSize = AndroidUtilities.dp(52);
+        int start = getScrollX() / tabSize;
+        int end = Math.min(tabsContainer.getChildCount(), start + (int) Math.ceil(getMeasuredWidth() / (float) tabSize) + 1);
+
+        for (int a = start; a < end; a++) {
+            View child = tabsContainer.getChildAt(a);
+            Object object = child.getTag();
+            Object parentObject = child.getTag(R.id.parent_tag);
+            if (!(object instanceof TLRPC.Document)) {
+                continue;
+            }
+            BackupImageView imageView = (BackupImageView) ((FrameLayout) child).getChildAt(0);
+            TLRPC.Document sticker = (TLRPC.Document) object;
+            TLRPC.PhotoSize thumb = FileLoader.getClosestPhotoSizeWithSize(sticker.thumbs, 90);
+            imageView.setImage(thumb, null, "webp", null, parentObject);
+        }
+    }
+
+    @Override
     protected void onScrollChanged(int l, int t, int oldl, int oldt) {
         super.onScrollChanged(l, t, oldl, oldt);
+
+        int tabSize = AndroidUtilities.dp(52);
+        int oldStart = oldl / tabSize;
+        int newStart = l / tabSize;
+
+        int count = (int) Math.ceil(getMeasuredWidth() / (float) tabSize) + 1;
+        int start = Math.max(0, Math.min(oldStart, newStart));
+        int end = Math.min(tabsContainer.getChildCount(), Math.max(oldStart, newStart) + count);
+
+        for (int a = start; a < end; a++) {
+            View child = tabsContainer.getChildAt(a);
+            if (child == null) {
+                continue;
+            }
+            Object object = child.getTag();
+            Object parentObject = child.getTag(R.id.parent_tag);
+            if (!(object instanceof TLRPC.Document)) {
+                continue;
+            }
+            BackupImageView imageView = (BackupImageView) ((FrameLayout) child).getChildAt(0);
+            if (a < newStart || a >= newStart + count) {
+                imageView.setImageDrawable(null);
+            } else {
+                TLRPC.Document sticker = (TLRPC.Document) object;
+                TLRPC.PhotoSize thumb = FileLoader.getClosestPhotoSizeWithSize(sticker.thumbs, 90);
+                imageView.setImage(thumb, null, "webp", null, parentObject);
+            }
+        }
     }
 
     @Override

@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -58,7 +58,6 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     private TextView emojiTextView;
     private FrameLayout container;
     private LinearLayout linearLayout1;
-    private TextView hintTextView;
     private LinearLayout linearLayout;
 
     private int chat_id;
@@ -89,14 +88,14 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     @Override
     public boolean onFragmentCreate() {
         chat_id = getArguments().getInt("chat_id");
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.emojiDidLoaded);
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiDidLoad);
         return super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.emojiDidLoaded);
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiDidLoad);
     }
 
     @Override
@@ -114,23 +113,10 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
             }
         });
 
-        fragmentView = new FrameLayout(context) {
-            @Override
-            protected void onLayout(boolean changed, int l, int t, int r, int b) {
-                super.onLayout(changed, l, t, r, b);
-                int x = container.getLeft() + codeTextView.getLeft() + codeTextView.getMeasuredWidth() / 2 - hintTextView.getMeasuredWidth() / 2;
-                int y = Math.max(AndroidUtilities.dp(5), container.getTop() + codeTextView.getTop() - AndroidUtilities.dp(10));
-                hintTextView.layout(x, y, x + hintTextView.getMeasuredWidth(), y + hintTextView.getMeasuredHeight());
-            }
-        };
+        fragmentView = new FrameLayout(context);
         FrameLayout parentFrameLayout = (FrameLayout) fragmentView;
         fragmentView.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundGray));
-        fragmentView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        fragmentView.setOnTouchListener((v, event) -> true);
 
         linearLayout = new LinearLayout(context);
         linearLayout.setOrientation(LinearLayout.VERTICAL);
@@ -179,16 +165,6 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         });*/
         linearLayout1.addView(codeTextView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL));
 
-        hintTextView = new TextView(getParentActivity());
-        hintTextView.setBackgroundDrawable(Theme.createRoundRectDrawable(AndroidUtilities.dp(3), Theme.getColor(Theme.key_chat_gifSaveHintBackground)));
-        hintTextView.setTextColor(Theme.getColor(Theme.key_chat_gifSaveHintText));
-        hintTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
-        hintTextView.setPadding(AndroidUtilities.dp(10), 0, AndroidUtilities.dp(10), 0);
-        hintTextView.setText(LocaleController.getString("TapToEmojify", R.string.TapToEmojify));
-        hintTextView.setGravity(Gravity.CENTER_VERTICAL);
-        hintTextView.setAlpha(0.0f);
-        parentFrameLayout.addView(hintTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 32));
-
         textView = new TextView(context);
         textView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText4));
         textView.setLinkTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteLinkText));
@@ -205,12 +181,12 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         emojiTextView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 32);
         container.addView(emojiTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
 
-        TLRPC.EncryptedChat encryptedChat = MessagesController.getInstance().getEncryptedChat(chat_id);
+        TLRPC.EncryptedChat encryptedChat = MessagesController.getInstance(currentAccount).getEncryptedChat(chat_id);
         if (encryptedChat != null) {
             IdenticonDrawable drawable = new IdenticonDrawable();
             identiconView.setImageDrawable(drawable);
             drawable.setEncryptedChat(encryptedChat);
-            TLRPC.User user = MessagesController.getInstance().getUser(encryptedChat.user_id);
+            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(encryptedChat.user_id);
             SpannableStringBuilder hash = new SpannableStringBuilder();
             StringBuilder emojis = new StringBuilder();
             if (encryptedChat.key_hash.length > 16) {
@@ -265,8 +241,8 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
     }
 
     @Override
-    public void didReceivedNotification(int id, Object... args) {
-        if (id == NotificationCenter.emojiDidLoaded) {
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.emojiDidLoad) {
             if (emojiTextView != null) {
                 emojiTextView.invalidate();
             }
@@ -332,42 +308,10 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
         });
     }
 
-    private void showHint(boolean show) {
-        /*SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-        if (show) {
-            if (preferences.getBoolean("secrethint", false)) {
-                return;
-            }
-        } else {
-            if (hintTextView.getAlpha() == 0.0f) {
-                return;
-            }
-            preferences.edit().putBoolean("secrethint", true).commit();
-        }
-        if (hintAnimatorSet != null) {
-            hintAnimatorSet.cancel();
-        }
-        hintAnimatorSet = new AnimatorSet();
-        hintAnimatorSet.playTogether(
-                ObjectAnimator.ofFloat(hintTextView, "alpha", show ? 1.0f : 0.0f)
-        );
-        hintAnimatorSet.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                if (animation.equals(hintAnimatorSet)) {
-                    hintAnimatorSet = null;
-                }
-            }
-        });
-        hintAnimatorSet.setDuration(300);
-        hintAnimatorSet.start();*/
-    }
-
     @Override
     protected void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
         if (isOpen && !backward && emojiText != null) {
             emojiTextView.setText(Emoji.replaceEmoji(emojiText, emojiTextView.getPaint().getFontMetricsInt(), AndroidUtilities.dp(32), false));
-            showHint(true);
         }
     }
 
@@ -385,9 +329,6 @@ public class IdenticonActivity extends BaseFragment implements NotificationCente
                 new ThemeDescription(textView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteGrayText4),
                 new ThemeDescription(codeTextView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteGrayText4),
                 new ThemeDescription(textView, ThemeDescription.FLAG_LINKCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteLinkText),
-
-                new ThemeDescription(hintTextView, ThemeDescription.FLAG_BACKGROUNDFILTER, null, null, null, null, Theme.key_chat_gifSaveHintBackground),
-                new ThemeDescription(hintTextView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_chat_gifSaveHintText),
         };
     }
 }

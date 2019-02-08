@@ -76,8 +76,8 @@ public class GridLayoutManager extends LinearLayoutManager {
      *                      #VERTICAL}.
      * @param reverseLayout When set to true, layouts from end to start.
      */
-    public GridLayoutManager(Context context, int spanCount, int orientation,
-            boolean reverseLayout) {
+    public GridLayoutManager(Context context, int spanCount,
+            @RecyclerView.Orientation int orientation, boolean reverseLayout) {
         super(context, orientation, reverseLayout);
         setSpanCount(spanCount);
     }
@@ -290,7 +290,7 @@ public class GridLayoutManager extends LinearLayoutManager {
     /**
      * @param totalSpace Total available space after padding is removed
      */
-    private void calculateItemBorders(int totalSpace) {
+    protected void calculateItemBorders(int totalSpace) {
         mCachedBorders = calculateItemBorders(mCachedBorders, mSpanCount, totalSpace);
     }
 
@@ -301,7 +301,7 @@ public class GridLayoutManager extends LinearLayoutManager {
      * @return The updated array. Might be the same instance as the provided array if its size
      * has not changed.
      */
-    static int[] calculateItemBorders(int[] cachedBorders, int spanCount, int totalSpace) {
+    protected int[] calculateItemBorders(int[] cachedBorders, int spanCount, int totalSpace) {
         if (cachedBorders == null || cachedBorders.length != spanCount + 1
                 || cachedBorders[cachedBorders.length - 1] != totalSpace) {
             cachedBorders = new int[spanCount + 1];
@@ -417,8 +417,8 @@ public class GridLayoutManager extends LinearLayoutManager {
                     if (invalidMatch == null) {
                         invalidMatch = view; // removed item, least preferred
                     }
-                } else if (mOrientationHelper.getDecoratedStart(view) >= boundsEnd ||
-                        mOrientationHelper.getDecoratedEnd(view) < boundsStart) {
+                } else if (mOrientationHelper.getDecoratedStart(view) >= boundsEnd
+                        || mOrientationHelper.getDecoratedEnd(view) < boundsStart) {
                     if (outOfBoundsMatch == null) {
                         outOfBoundsMatch = view; // item is not visible, less preferred
                     }
@@ -468,7 +468,7 @@ public class GridLayoutManager extends LinearLayoutManager {
         return mSpanSizeLookup.getCachedSpanIndex(adapterPosition, mSpanCount);
     }
 
-    private int getSpanSize(RecyclerView.Recycler recycler, RecyclerView.State state, int pos) {
+    protected int getSpanSize(RecyclerView.Recycler recycler, RecyclerView.State state, int pos) {
         if (!state.isPreLayout()) {
             return mSpanSizeLookup.getSpanSize(pos);
         }
@@ -530,8 +530,8 @@ public class GridLayoutManager extends LinearLayoutManager {
             int pos = layoutState.mCurrentPosition;
             final int spanSize = getSpanSize(recycler, state, pos);
             if (spanSize > mSpanCount) {
-                throw new IllegalArgumentException("Item at position " + pos + " requires " +
-                        spanSize + " spans but GridLayoutManager has only " + mSpanCount
+                throw new IllegalArgumentException("Item at position " + pos + " requires "
+                        + spanSize + " spans but GridLayoutManager has only " + mSpanCount
                         + " spans.");
             }
             remainingSpan -= spanSize;
@@ -580,8 +580,8 @@ public class GridLayoutManager extends LinearLayoutManager {
                 maxSize = size;
             }
             final LayoutParams lp = (LayoutParams) view.getLayoutParams();
-            final float otherSize = 1f * mOrientationHelper.getDecoratedMeasurementInOther(view) /
-                    lp.mSpanSize;
+            final float otherSize = 1f * mOrientationHelper.getDecoratedMeasurementInOther(view)
+                    / lp.mSpanSize;
             if (otherSize > maxSizeInOther) {
                 maxSizeInOther = otherSize;
             }
@@ -603,7 +603,7 @@ public class GridLayoutManager extends LinearLayoutManager {
 
         // Views that did not measure the maxSize has to be re-measured
         // We will stop doing this once we introduce Gravity in the GLM layout params
-        for (int i = 0; i < count; i ++) {
+        for (int i = 0; i < count; i++) {
             final View view = mSet[i];
             if (mOrientationHelper.getDecoratedMeasurement(view) != maxSize) {
                 final LayoutParams lp = (LayoutParams) view.getLayoutParams();
@@ -692,7 +692,7 @@ public class GridLayoutManager extends LinearLayoutManager {
      *                               orientation
      * @param alreadyMeasured True if we've already measured this view once
      */
-    private void measureChild(View view, int otherDirParentSpecMode, boolean alreadyMeasured) {
+    protected void measureChild(View view, int otherDirParentSpecMode, boolean alreadyMeasured) {
         final LayoutParams lp = (LayoutParams) view.getLayoutParams();
         final Rect decorInsets = lp.mDecorInsets;
         final int verticalInsets = decorInsets.top + decorInsets.bottom
@@ -732,7 +732,7 @@ public class GridLayoutManager extends LinearLayoutManager {
         calculateItemBorders(Math.max(contentSize, currentOtherDirSize));
     }
 
-    private void measureChildWithDecorationsAndMargin(View child, int widthSpec, int heightSpec,
+    protected void measureChildWithDecorationsAndMargin(View child, int widthSpec, int heightSpec,
             boolean alreadyMeasured) {
         RecyclerView.LayoutParams lp = (RecyclerView.LayoutParams) child.getLayoutParams();
         final boolean measure;
@@ -746,7 +746,7 @@ public class GridLayoutManager extends LinearLayoutManager {
         }
     }
 
-    private void assignSpans(RecyclerView.Recycler recycler, RecyclerView.State state, int count,
+    protected void assignSpans(RecyclerView.Recycler recycler, RecyclerView.State state, int count,
             int consumedSpanCount, boolean layingOutInPrimaryDirection) {
         // spans are always assigned from 0 to N no matter if it is RTL or not.
         // RTL is used only when positioning the view.
@@ -811,7 +811,7 @@ public class GridLayoutManager extends LinearLayoutManager {
      *
      * @see GridLayoutManager#setSpanSizeLookup(SpanSizeLookup)
      */
-    public static abstract class SpanSizeLookup {
+    public abstract static class SpanSizeLookup {
 
         final SparseIntArray mSpanIndexCache = new SparseIntArray();
 
@@ -823,7 +823,7 @@ public class GridLayoutManager extends LinearLayoutManager {
          * @param position The adapter position of the item
          * @return The number of spans occupied by the item at the provided position
          */
-        abstract public int getSpanSize(int position);
+        public abstract int getSpanSize(int position);
 
         /**
          * Sets whether the results of {@link #getSpanIndex(int, int)} method should be cached or

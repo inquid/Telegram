@@ -1,14 +1,13 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.messenger.video;
 
-import android.annotation.TargetApi;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 
@@ -50,7 +49,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 
-@TargetApi(16)
 public class MP4Builder {
 
     private InterleaveChunkMdat mdat = null;
@@ -62,8 +60,9 @@ public class MP4Builder {
     private boolean writeNewMdat = true;
     private HashMap<Track, long[]> track2SampleSizes = new HashMap<>();
     private ByteBuffer sizeBuffer = null;
+    private boolean splitMdat;
 
-    public MP4Builder createMovie(Mp4Movie mp4Movie) throws Exception {
+    public MP4Builder createMovie(Mp4Movie mp4Movie, boolean split) throws Exception {
         currentMp4Movie = mp4Movie;
 
         fos = new FileOutputStream(mp4Movie.getCacheFile());
@@ -73,6 +72,7 @@ public class MP4Builder {
         fileTypeBox.getBox(fc);
         dataOffset += fileTypeBox.getSize();
         writedSinceLastMdat += dataOffset;
+        splitMdat = split;
 
         mdat = new InterleaveChunkMdat();
 
@@ -89,6 +89,7 @@ public class MP4Builder {
         mdat.setDataOffset(0);
         mdat.setContentSize(0);
         fos.flush();
+        fos.getFD().sync();
     }
 
     public boolean writeSampleData(int trackIndex, ByteBuffer byteBuf, MediaCodec.BufferInfo bufferInfo, boolean writeLength) throws Exception {
@@ -106,10 +107,12 @@ public class MP4Builder {
 
         boolean flush = false;
         if (writedSinceLastMdat >= 32 * 1024) {
-            flushCurrentMdat();
-            writeNewMdat = true;
+            if (splitMdat) {
+                flushCurrentMdat();
+                writeNewMdat = true;
+            }
             flush = true;
-            writedSinceLastMdat -= 32 * 1024;
+            writedSinceLastMdat = 0;
         }
 
         currentMp4Movie.addSample(trackIndex, dataOffset, bufferInfo);
@@ -128,6 +131,7 @@ public class MP4Builder {
 
         if (flush) {
             fos.flush();
+            fos.getFD().sync();
         }
         return flush;
     }
@@ -153,6 +157,7 @@ public class MP4Builder {
         Box moov = createMovieBox(currentMp4Movie);
         moov.getBox(fc);
         fos.flush();
+        fos.getFD().sync();
 
         fc.close();
         fos.close();
@@ -209,7 +214,7 @@ public class MP4Builder {
         }
 
         @Override
-        public void parse(DataSource dataSource, ByteBuffer header, long contentSize, BoxParser boxParser) throws IOException {
+        public void parse(DataSource dataSource, ByteBuffer header, long contentSize, BoxParser boxParser) {
 
         }
 
@@ -405,7 +410,7 @@ public class MP4Builder {
 
     protected void createStsc(Track track, SampleTableBox stbl) {
         SampleToChunkBox stsc = new SampleToChunkBox();
-        stsc.setEntries(new LinkedList<SampleToChunkBox.Entry>());
+        stsc.setEntries(new LinkedList<>());
 
         long lastOffset;
         int lastChunkNumber = 1;

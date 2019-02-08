@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -17,8 +17,11 @@ import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ContactsController;
+import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.AvatarDrawable;
@@ -32,6 +35,8 @@ public class ShareDialogCell extends FrameLayout {
     private TextView nameTextView;
     private CheckBox checkBox;
     private AvatarDrawable avatarDrawable = new AvatarDrawable();
+
+    private int currentAccount = UserConfig.selectedAccount;
 
     public ShareDialogCell(Context context) {
         super(context);
@@ -64,21 +69,28 @@ public class ShareDialogCell extends FrameLayout {
 
     public void setDialog(int uid, boolean checked, CharSequence name) {
         TLRPC.FileLocation photo = null;
+        Object parentObject;
         if (uid > 0) {
-            TLRPC.User user = MessagesController.getInstance().getUser(uid);
-            if (name != null) {
-                nameTextView.setText(name);
-            } else if (user != null) {
-                nameTextView.setText(ContactsController.formatName(user.first_name, user.last_name));
-            } else {
-                nameTextView.setText("");
-            }
+            TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(uid);
             avatarDrawable.setInfo(user);
-            if (user != null && user.photo != null) {
-                photo = user.photo.photo_small;
+            if (UserObject.isUserSelf(user)) {
+                nameTextView.setText(LocaleController.getString("SavedMessages", R.string.SavedMessages));
+                avatarDrawable.setSavedMessages(1);
+            } else {
+                if (name != null) {
+                    nameTextView.setText(name);
+                } else if (user != null) {
+                    nameTextView.setText(ContactsController.formatName(user.first_name, user.last_name));
+                } else {
+                    nameTextView.setText("");
+                }
+                if (user != null && user.photo != null) {
+                    photo = user.photo.photo_small;
+                }
             }
+            parentObject = user;
         } else {
-            TLRPC.Chat chat = MessagesController.getInstance().getChat(-uid);
+            TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(-uid);
             if (name != null) {
                 nameTextView.setText(name);
             } else if (chat != null) {
@@ -90,8 +102,9 @@ public class ShareDialogCell extends FrameLayout {
             if (chat != null && chat.photo != null) {
                 photo = chat.photo.photo_small;
             }
+            parentObject = chat;
         }
-        imageView.setImage(photo, "50_50", avatarDrawable);
+        imageView.setImage(photo, "50_50", avatarDrawable, parentObject);
         checkBox.setChecked(checked, false);
     }
 

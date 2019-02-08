@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -147,7 +147,7 @@ public class SeekBarWaveform {
         float barCounter = 0;
         int nextBarNum = 0;
 
-        paintInner.setColor(messageObject != null && !messageObject.isOutOwner() && messageObject.isContentUnread() && messageObject.messageOwner.to_id.channel_id == 0 ? outerColor : (selected ? selectedColor : innerColor));
+        paintInner.setColor(messageObject != null && !messageObject.isOutOwner() && messageObject.isContentUnread() ? outerColor : (selected ? selectedColor : innerColor));
         paintOuter.setColor(outerColor);
 
         int y = (height - AndroidUtilities.dp(14)) / 2;
@@ -173,7 +173,7 @@ public class SeekBarWaveform {
             int currentByteCount = 8 - byteBitOffset;
             int nextByteRest = 5 - currentByteCount;
             value = (byte) ((waveformBytes[byteNum] >> byteBitOffset) & ((2 << (Math.min(5, currentByteCount) - 1)) - 1));
-            if (nextByteRest > 0) {
+            if (nextByteRest > 0 && byteNum + 1 < waveformBytes.length) {
                 value <<= nextByteRest;
                 value |= waveformBytes[byteNum + 1] & ((2 << (nextByteRest - 1)) - 1);
             }

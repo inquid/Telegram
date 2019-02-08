@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Components;
@@ -34,7 +34,7 @@ public class AvatarDrawable extends Drawable {
     private float textLeft;
     private boolean isProfile;
     private boolean drawBrodcast;
-    private boolean drawPhoto;
+    private int savedMessages;
     private StringBuilder stringBuilder = new StringBuilder(5);
 
     public AvatarDrawable() {
@@ -74,7 +74,7 @@ public class AvatarDrawable extends Drawable {
     }
 
     public static int getColorIndex(int id) {
-        if (id >= 0 && id < 8) {
+        if (id >= 0 && id < 7) {
             return id;
         }
         return Math.abs(id % Theme.keys_avatar_background.length);
@@ -85,23 +85,23 @@ public class AvatarDrawable extends Drawable {
     }
 
     public static int getButtonColorForId(int id) {
-        return Theme.getColor(Theme.keys_avatar_actionBarSelector[getColorIndex(id)]);
+        return Theme.getColor(Theme.key_avatar_actionBarSelectorBlue);
     }
 
     public static int getIconColorForId(int id) {
-        return Theme.getColor(Theme.keys_avatar_actionBarIcon[getColorIndex(id)]);
+        return Theme.getColor(Theme.key_avatar_actionBarIconBlue);
     }
 
     public static int getProfileColorForId(int id) {
-        return Theme.getColor(Theme.keys_avatar_backgroundInProfile[getColorIndex(id)]);
+        return Theme.getColor(Theme.keys_avatar_background[getColorIndex(id)]);
     }
 
     public static int getProfileTextColorForId(int id) {
-        return Theme.getColor(Theme.keys_avatar_subtitleInProfile[getColorIndex(id)]);
+        return Theme.getColor(Theme.key_avatar_subtitleInProfileBlue);
     }
 
     public static int getProfileBackColorForId(int id) {
-        return Theme.getColor(Theme.keys_avatar_backgroundActionBar[getColorIndex(id)]);
+        return Theme.getColor(Theme.key_avatar_backgroundActionBarBlue);
     }
 
     public static int getNameColorForId(int id) {
@@ -112,6 +112,11 @@ public class AvatarDrawable extends Drawable {
         if (user != null) {
             setInfo(user.id, user.first_name, user.last_name, false, null);
         }
+    }
+
+    public void setSavedMessages(int value) {
+        savedMessages = value;
+        color = Theme.getColor(Theme.key_avatar_backgroundSaved);
     }
 
     public void setInfo(TLRPC.Chat chat) {
@@ -144,6 +149,7 @@ public class AvatarDrawable extends Drawable {
         }
 
         drawBrodcast = isBroadcast;
+        savedMessages = 0;
 
         if (firstName == null || firstName.length() == 0) {
             firstName = lastName;
@@ -165,13 +171,17 @@ public class AvatarDrawable extends Drawable {
                     }
                     lastch = lastName.codePointAt(a);
                 }
-                stringBuilder.append("\u200C");
+                if (Build.VERSION.SDK_INT > 17) {
+                    stringBuilder.append("\u200C");
+                }
                 stringBuilder.appendCodePoint(lastch);
             } else if (firstName != null && firstName.length() > 0) {
                 for (int a = firstName.length() - 1; a >= 0; a--) {
                     if (firstName.charAt(a) == ' ') {
                         if (a != firstName.length() - 1 && firstName.charAt(a + 1) != ' ') {
-                            stringBuilder.append("\u200C");
+                            if (Build.VERSION.SDK_INT > 17) {
+                                stringBuilder.append("\u200C");
+                            }
                             stringBuilder.appendCodePoint(firstName.codePointAt(a + 1));
                             break;
                         }
@@ -197,10 +207,6 @@ public class AvatarDrawable extends Drawable {
         }
     }
 
-    public void setDrawPhoto(boolean value) {
-        drawPhoto = value;
-    }
-
     @Override
     public void draw(Canvas canvas) {
         Rect bounds = getBounds();
@@ -212,9 +218,20 @@ public class AvatarDrawable extends Drawable {
         Theme.avatar_backgroundPaint.setColor(color);
         canvas.save();
         canvas.translate(bounds.left, bounds.top);
-        canvas.drawCircle(size / 2, size / 2, size / 2, Theme.avatar_backgroundPaint);
+        canvas.drawCircle(size / 2.0f, size / 2.0f, size / 2.0f, Theme.avatar_backgroundPaint);
 
-        if (drawBrodcast && Theme.avatar_broadcastDrawable != null) {
+        if (savedMessages != 0 && Theme.avatar_savedDrawable != null) {
+            int w = Theme.avatar_savedDrawable.getIntrinsicWidth();
+            int h = Theme.avatar_savedDrawable.getIntrinsicHeight();
+            if (savedMessages == 2) {
+                w *= 0.8f;
+                h *= 0.8f;
+            }
+            int x = (size - w) / 2;
+            int y = (size - h) / 2;
+            Theme.avatar_savedDrawable.setBounds(x, y, x + w, y + h);
+            Theme.avatar_savedDrawable.draw(canvas);
+        } else if (drawBrodcast && Theme.avatar_broadcastDrawable != null) {
             int x = (size - Theme.avatar_broadcastDrawable.getIntrinsicWidth()) / 2;
             int y = (size - Theme.avatar_broadcastDrawable.getIntrinsicHeight()) / 2;
             Theme.avatar_broadcastDrawable.setBounds(x, y, x + Theme.avatar_broadcastDrawable.getIntrinsicWidth(), y + Theme.avatar_broadcastDrawable.getIntrinsicHeight());
@@ -223,11 +240,6 @@ public class AvatarDrawable extends Drawable {
             if (textLayout != null) {
                 canvas.translate((size - textWidth) / 2 - textLeft, (size - textHeight) / 2);
                 textLayout.draw(canvas);
-            } else if (drawPhoto && Theme.avatar_photoDrawable != null) {
-                int x = (size - Theme.avatar_photoDrawable.getIntrinsicWidth()) / 2;
-                int y = (size - Theme.avatar_photoDrawable.getIntrinsicHeight()) / 2;
-                Theme.avatar_photoDrawable.setBounds(x, y, x + Theme.avatar_photoDrawable.getIntrinsicWidth(), y + Theme.avatar_photoDrawable.getIntrinsicHeight());
-                Theme.avatar_photoDrawable.draw(canvas);
             }
         }
         canvas.restore();

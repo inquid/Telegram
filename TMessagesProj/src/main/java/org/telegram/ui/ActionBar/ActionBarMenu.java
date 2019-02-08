@@ -1,16 +1,14 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.ActionBar;
 
 import android.content.Context;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.view.ViewGroup;
@@ -74,23 +72,20 @@ public class ActionBarMenu extends LinearLayout {
         menuItem.setTag(id);
         if (drawable != null) {
             menuItem.iconView.setImageDrawable(drawable);
-        } else {
+        } else if (icon != 0) {
             menuItem.iconView.setImageResource(icon);
         }
         addView(menuItem, new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.MATCH_PARENT));
-        menuItem.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                ActionBarMenuItem item = (ActionBarMenuItem) view;
-                if (item.hasSubMenu()) {
-                    if (parentActionBar.actionBarMenuOnItemClick.canOpenMenu()) {
-                        item.toggleSubMenu();
-                    }
-                } else if (item.isSearchField()) {
-                    parentActionBar.onSearchFieldVisibilityChanged(item.toggleSearch(true));
-                } else {
-                    onItemClick((Integer) view.getTag());
+        menuItem.setOnClickListener(view -> {
+            ActionBarMenuItem item = (ActionBarMenuItem) view;
+            if (item.hasSubMenu()) {
+                if (parentActionBar.actionBarMenuOnItemClick.canOpenMenu()) {
+                    item.toggleSubMenu();
                 }
+            } else if (item.isSearchField()) {
+                parentActionBar.onSearchFieldVisibilityChanged(item.toggleSearch(true));
+            } else {
+                onItemClick((Integer) view.getTag());
             }
         });
         return menuItem;
@@ -158,14 +153,15 @@ public class ActionBarMenu extends LinearLayout {
         }
     }
 
-    public void closeSearchField() {
+    public void closeSearchField(boolean closeKeyboard) {
         int count = getChildCount();
         for (int a = 0; a < count; a++) {
             View view = getChildAt(a);
             if (view instanceof ActionBarMenuItem) {
                 ActionBarMenuItem item = (ActionBarMenuItem) view;
                 if (item.isSearchField()) {
-                    parentActionBar.onSearchFieldVisibilityChanged(item.toggleSearch(false));
+                    parentActionBar.onSearchFieldVisibilityChanged(false);
+                    item.toggleSearch(closeKeyboard);
                     break;
                 }
             }
@@ -190,7 +186,7 @@ public class ActionBarMenu extends LinearLayout {
         }
     }
 
-    public void openSearchField(boolean toggle, String text) {
+    public void openSearchField(boolean toggle, String text, boolean animated) {
         int count = getChildCount();
         for (int a = 0; a < count; a++) {
             View view = getChildAt(a);
@@ -200,7 +196,7 @@ public class ActionBarMenu extends LinearLayout {
                     if (toggle) {
                         parentActionBar.onSearchFieldVisibilityChanged(item.toggleSearch(true));
                     }
-                    item.getSearchField().setText(text);
+                    item.setSearchFieldText(text, animated);
                     item.getSearchField().setSelection(text.length());
                     break;
                 }
@@ -214,5 +210,15 @@ public class ActionBarMenu extends LinearLayout {
             return (ActionBarMenuItem) v;
         }
         return null;
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        int count = getChildCount();
+        for (int a = 0; a < count; a++) {
+            View view = getChildAt(a);
+            view.setEnabled(enabled);
+        }
     }
 }

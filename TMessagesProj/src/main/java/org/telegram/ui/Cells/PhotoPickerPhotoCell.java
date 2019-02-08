@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui.Cells;
@@ -13,6 +13,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.content.Context;
+import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.animation.DecelerateInterpolator;
@@ -21,7 +22,11 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.MediaController;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
+import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.CheckBox;
 import org.telegram.ui.Components.LayoutHelper;
@@ -36,9 +41,12 @@ public class PhotoPickerPhotoCell extends FrameLayout {
     private AnimatorSet animator;
     private AnimatorSet animatorSet;
     public int itemWidth;
+    private boolean zoomOnSelect;
 
-    public PhotoPickerPhotoCell(Context context) {
+    public PhotoPickerPhotoCell(Context context, boolean zoom) {
         super(context);
+
+        zoomOnSelect = zoom;
 
         photoImage = new BackupImageView(context);
         addView(photoImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
@@ -61,11 +69,11 @@ public class PhotoPickerPhotoCell extends FrameLayout {
         videoInfoContainer.addView(videoTextView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.CENTER_VERTICAL, 18, -0.7f, 0, 0));
 
         checkBox = new CheckBox(context, R.drawable.checkbig);
-        checkBox.setSize(30);
+        checkBox.setSize(zoom ? 30 : 26);
         checkBox.setCheckOffset(AndroidUtilities.dp(1));
         checkBox.setDrawBackground(true);
-        checkBox.setColor(0xff3ccaef, 0xffffffff);
-        addView(checkBox, LayoutHelper.createFrame(30, 30, Gravity.RIGHT | Gravity.TOP, 0, 4, 4, 0));
+        checkBox.setColor(0xff66bffa, 0xffffffff);
+        addView(checkBox, LayoutHelper.createFrame(zoom ? 30 : 26, zoom ? 30 : 26, Gravity.RIGHT | Gravity.TOP, 0, 4, 4, 0));
     }
 
     @Override
@@ -95,43 +103,67 @@ public class PhotoPickerPhotoCell extends FrameLayout {
         animatorSet.start();
     }
 
-    public void setChecked(final boolean checked, final boolean animated) {
-        checkBox.setChecked(checked, animated);
+    public void setNum(int num) {
+        checkBox.setNum(num);
+    }
+
+    public void setImage(MediaController.SearchImage searchImage) {
+        Drawable thumb = getResources().getDrawable(R.drawable.nophotos);
+        if (searchImage.thumbPhotoSize != null) {
+            photoImage.setImage(searchImage.thumbPhotoSize, null, thumb, searchImage);
+        } else if (searchImage.photoSize != null) {
+            photoImage.setImage(searchImage.photoSize, "80_80", thumb, searchImage);
+        } else if (searchImage.thumbPath != null) {
+            photoImage.setImage(searchImage.thumbPath, null, thumb);
+        } else if (searchImage.thumbUrl != null && searchImage.thumbUrl.length() > 0) {
+            photoImage.setImage(searchImage.thumbUrl, null, thumb);
+        } else if (searchImage.document != null && MessageObject.isDocumentHasThumb(searchImage.document)) {
+            TLRPC.PhotoSize photoSize = FileLoader.getClosestPhotoSizeWithSize(searchImage.document.thumbs, 90);
+            photoImage.setImage(photoSize, null, thumb, searchImage);
+        } else {
+            photoImage.setImageDrawable(thumb);
+        }
+    }
+
+    public void setChecked(final int num, final boolean checked, final boolean animated) {
+        checkBox.setChecked(num, checked, animated);
         if (animator != null) {
             animator.cancel();
             animator = null;
         }
-        if (animated) {
-            if (checked) {
-                setBackgroundColor(0xff0A0A0A);
-            }
-            animator = new AnimatorSet();
-            animator.playTogether(ObjectAnimator.ofFloat(photoImage, "scaleX", checked ? 0.85f : 1.0f),
-                    ObjectAnimator.ofFloat(photoImage, "scaleY", checked ? 0.85f : 1.0f));
-            animator.setDuration(200);
-            animator.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    if (animator != null && animator.equals(animation)) {
-                        animator = null;
-                        if (!checked) {
-                            setBackgroundColor(0);
+        if (zoomOnSelect) {
+            if (animated) {
+                if (checked) {
+                    setBackgroundColor(0xff0a0a0a);
+                }
+                animator = new AnimatorSet();
+                animator.playTogether(ObjectAnimator.ofFloat(photoImage, "scaleX", checked ? 0.85f : 1.0f),
+                        ObjectAnimator.ofFloat(photoImage, "scaleY", checked ? 0.85f : 1.0f));
+                animator.setDuration(200);
+                animator.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        if (animator != null && animator.equals(animation)) {
+                            animator = null;
+                            if (!checked) {
+                                setBackgroundColor(0);
+                            }
                         }
                     }
-                }
 
-                @Override
-                public void onAnimationCancel(Animator animation) {
-                    if (animator != null && animator.equals(animation)) {
-                        animator = null;
+                    @Override
+                    public void onAnimationCancel(Animator animation) {
+                        if (animator != null && animator.equals(animation)) {
+                            animator = null;
+                        }
                     }
-                }
-            });
-            animator.start();
-        } else {
-            setBackgroundColor(checked ? 0xff0A0A0A : 0);
-            photoImage.setScaleX(checked ? 0.85f : 1.0f);
-            photoImage.setScaleY(checked ? 0.85f : 1.0f);
+                });
+                animator.start();
+            } else {
+                setBackgroundColor(checked ? 0xff0A0A0A : 0);
+                photoImage.setScaleX(checked ? 0.85f : 1.0f);
+                photoImage.setScaleY(checked ? 0.85f : 1.0f);
+            }
         }
     }
 }

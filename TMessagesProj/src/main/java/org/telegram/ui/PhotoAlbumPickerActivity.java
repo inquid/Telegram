@@ -3,7 +3,7 @@
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -11,7 +11,6 @@ package org.telegram.ui;
 import android.app.Activity;
 import android.content.Context;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,9 +26,9 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.support.widget.LinearLayoutManager;
 import org.telegram.messenger.support.widget.RecyclerView;
-import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -47,17 +46,19 @@ import java.util.HashMap;
 public class PhotoAlbumPickerActivity extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
 
     public interface PhotoAlbumPickerActivityDelegate {
-        void didSelectPhotos(ArrayList<String> photos, ArrayList<String> captions, ArrayList<Integer> ttls, ArrayList<MediaController.PhotoEntry> videos, ArrayList<ArrayList<TLRPC.InputDocument>> masks, ArrayList<MediaController.SearchImage> webPhotos);
+        void didSelectPhotos(ArrayList<SendMessagesHelper.SendingMediaInfo> photos);
         void startPhotoSelectActivity();
     }
 
+    private HashMap<Object, Object> selectedPhotos = new HashMap<>();
+    private ArrayList<Object> selectedPhotosOrder = new ArrayList<>();
+
     private ArrayList<MediaController.AlbumEntry> albumsSorted = null;
-    private HashMap<Integer, MediaController.PhotoEntry> selectedPhotos = new HashMap<>();
-    private HashMap<String, MediaController.SearchImage> selectedWebPhotos = new HashMap<>();
     private HashMap<String, MediaController.SearchImage> recentImagesWebKeys = new HashMap<>();
     private HashMap<String, MediaController.SearchImage> recentImagesGifKeys = new HashMap<>();
     private ArrayList<MediaController.SearchImage> recentWebImages = new ArrayList<>();
     private ArrayList<MediaController.SearchImage> recentGifImages = new ArrayList<>();
+
     private boolean loading = false;
 
     private int columnsCount = 2;
@@ -67,17 +68,19 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
     private TextView emptyView;
     private PickerBottomLayout pickerBottomLayout;
     private boolean sendPressed;
-    private boolean singlePhoto;
+    private int selectPhotoType;
+    private boolean allowSearchImages = true;
     private boolean allowGifs;
     private boolean allowCaption;
     private ChatActivity chatActivity;
+    private int maxSelectedPhotos;
 
     private PhotoAlbumPickerActivityDelegate delegate;
 
-    public PhotoAlbumPickerActivity(boolean singlePhoto, boolean allowGifs, boolean allowCaption, ChatActivity chatActivity) {
+    public PhotoAlbumPickerActivity(int selectPhotoType, boolean allowGifs, boolean allowCaption, ChatActivity chatActivity) {
         super();
         this.chatActivity = chatActivity;
-        this.singlePhoto = singlePhoto;
+        this.selectPhotoType = selectPhotoType;
         this.allowGifs = allowGifs;
         this.allowCaption = allowCaption;
     }
@@ -86,17 +89,17 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
     public boolean onFragmentCreate() {
         loading = true;
         MediaController.loadGalleryPhotosAlbums(classGuid);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.albumsDidLoaded);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.recentImagesDidLoaded);
-        NotificationCenter.getInstance().addObserver(this, NotificationCenter.closeChats);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.albumsDidLoad);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.recentImagesDidLoad);
+        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.closeChats);
         return super.onFragmentCreate();
     }
 
     @Override
     public void onFragmentDestroy() {
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.albumsDidLoaded);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.recentImagesDidLoaded);
-        NotificationCenter.getInstance().removeObserver(this, NotificationCenter.closeChats);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.albumsDidLoad);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.recentImagesDidLoad);
+        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.closeChats);
         super.onFragmentDestroy();
     }
 
@@ -159,12 +162,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         layoutParams.height = LayoutHelper.MATCH_PARENT;
         layoutParams.bottomMargin = AndroidUtilities.dp(48);
         emptyView.setLayoutParams(layoutParams);
-        emptyView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                return true;
-            }
-        });
+        emptyView.setOnTouchListener((v, event) -> true);
 
         progressView = new FrameLayout(context);
         progressView.setVisibility(View.GONE);
@@ -190,18 +188,10 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         layoutParams.height = AndroidUtilities.dp(48);
         layoutParams.gravity = Gravity.BOTTOM;
         pickerBottomLayout.setLayoutParams(layoutParams);
-        pickerBottomLayout.cancelButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                finishFragment();
-            }
-        });
-        pickerBottomLayout.doneButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                sendSelectedPhotos();
-                finishFragment();
-            }
+        pickerBottomLayout.cancelButton.setOnClickListener(view -> finishFragment());
+        pickerBottomLayout.doneButton.setOnClickListener(view -> {
+            sendSelectedPhotos(selectedPhotos, selectedPhotosOrder);
+            finishFragment();
         });
 
         if (loading && (albumsSorted == null || albumsSorted != null && albumsSorted.isEmpty())) {
@@ -211,7 +201,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             progressView.setVisibility(View.GONE);
             listView.setEmptyView(emptyView);
         }
-        pickerBottomLayout.updateSelectedCount(selectedPhotos.size() + selectedWebPhotos.size(), true);
+        pickerBottomLayout.updateSelectedCount(selectedPhotos.size(), true);
 
         return fragmentView;
     }
@@ -233,11 +223,11 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     @SuppressWarnings("unchecked")
     @Override
-    public void didReceivedNotification(int id, Object... args) {
-        if (id == NotificationCenter.albumsDidLoaded) {
+    public void didReceivedNotification(int id, int account, Object... args) {
+        if (id == NotificationCenter.albumsDidLoad) {
             int guid = (Integer) args[0];
             if (classGuid == guid) {
-                if (singlePhoto) {
+                if (selectPhotoType != 0 || !allowSearchImages) {
                     albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[2];
                 } else {
                     albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[1];
@@ -255,7 +245,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             }
         } else if (id == NotificationCenter.closeChats) {
             removeSelfFromStack();
-        } else if (id == NotificationCenter.recentImagesDidLoaded) {
+        } else if (id == NotificationCenter.recentImagesDidLoad) {
             int type = (Integer) args[0];
             if (type == 0) {
                 recentWebImages = (ArrayList<MediaController.SearchImage>) args[1];
@@ -273,79 +263,90 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         }
     }
 
+    public void setMaxSelectedPhotos(int value) {
+        maxSelectedPhotos = value;
+    }
+
+    public void setAllowSearchImages(boolean value) {
+        allowSearchImages = value;
+    }
+
     public void setDelegate(PhotoAlbumPickerActivityDelegate delegate) {
         this.delegate = delegate;
     }
 
-    private void sendSelectedPhotos() {
-        if (selectedPhotos.isEmpty() && selectedWebPhotos.isEmpty() || delegate == null || sendPressed) {
+    private void sendSelectedPhotos(HashMap<Object, Object> photos, ArrayList<Object> order) {
+        if (photos.isEmpty() || delegate == null || sendPressed) {
             return;
         }
         sendPressed = true;
-        ArrayList<String> photos = new ArrayList<>();
-        ArrayList<MediaController.PhotoEntry> videos = new ArrayList<>();
-        ArrayList<String> captions = new ArrayList<>();
-        ArrayList<Integer> ttls = new ArrayList<>();
-        ArrayList<ArrayList<TLRPC.InputDocument>> masks = new ArrayList<>();
-        for (HashMap.Entry<Integer, MediaController.PhotoEntry> entry : selectedPhotos.entrySet()) {
-            MediaController.PhotoEntry photoEntry = entry.getValue();
-            if (photoEntry.isVideo) {
-                videos.add(photoEntry);
-            } else if (photoEntry.imagePath != null) {
-                photos.add(photoEntry.imagePath);
-                captions.add(photoEntry.caption != null ? photoEntry.caption.toString() : null);
-                masks.add(!photoEntry.stickers.isEmpty() ? new ArrayList<>(photoEntry.stickers) : null);
-                ttls.add(photoEntry.ttl);
-            } else if (photoEntry.path != null) {
-                photos.add(photoEntry.path);
-                captions.add(photoEntry.caption != null ? photoEntry.caption.toString() : null);
-                masks.add(!photoEntry.stickers.isEmpty() ? new ArrayList<>(photoEntry.stickers) : null);
-                ttls.add(photoEntry.ttl);
-            }
-        }
-        ArrayList<MediaController.SearchImage> webPhotos = new ArrayList<>();
         boolean gifChanged = false;
         boolean webChange = false;
-        for (HashMap.Entry<String, MediaController.SearchImage> entry : selectedWebPhotos.entrySet()) {
-            MediaController.SearchImage searchImage = entry.getValue();
-            if (searchImage.imagePath != null) {
-                photos.add(searchImage.imagePath);
-                captions.add(searchImage.caption != null ? searchImage.caption.toString() : null);
-                masks.add(!searchImage.stickers.isEmpty() ? new ArrayList<>(searchImage.stickers) : null);
-                ttls.add(searchImage.ttl);
-            } else {
-                webPhotos.add(searchImage);
-            }
-            searchImage.date = (int) (System.currentTimeMillis() / 1000);
 
-            if (searchImage.type == 0) {
-                webChange = true;
-                MediaController.SearchImage recentImage = recentImagesWebKeys.get(searchImage.id);
-                if (recentImage != null) {
-                    recentWebImages.remove(recentImage);
-                    recentWebImages.add(0, recentImage);
-                } else {
-                    recentWebImages.add(0, searchImage);
+        ArrayList<SendMessagesHelper.SendingMediaInfo> media = new ArrayList<>();
+        for (int a = 0; a < order.size(); a++) {
+            Object object = photos.get(order.get(a));
+            SendMessagesHelper.SendingMediaInfo info = new SendMessagesHelper.SendingMediaInfo();
+            media.add(info);
+            if (object instanceof MediaController.PhotoEntry) {
+                MediaController.PhotoEntry photoEntry = (MediaController.PhotoEntry) object;
+                if (photoEntry.isVideo) {
+                    info.path = photoEntry.path;
+                    info.videoEditedInfo = photoEntry.editedInfo;
+                } else if (photoEntry.imagePath != null) {
+                    info.path = photoEntry.imagePath;
+                } else if (photoEntry.path != null) {
+                    info.path = photoEntry.path;
                 }
-            } else if (searchImage.type == 1) {
-                gifChanged = true;
-                MediaController.SearchImage recentImage = recentImagesGifKeys.get(searchImage.id);
-                if (recentImage != null) {
-                    recentGifImages.remove(recentImage);
-                    recentGifImages.add(0, recentImage);
+                info.isVideo = photoEntry.isVideo;
+                info.caption = photoEntry.caption != null ? photoEntry.caption.toString() : null;
+                info.entities = photoEntry.entities;
+                info.masks = !photoEntry.stickers.isEmpty() ? new ArrayList<>(photoEntry.stickers) : null;
+                info.ttl = photoEntry.ttl;
+            } else if (object instanceof MediaController.SearchImage) {
+                MediaController.SearchImage searchImage = (MediaController.SearchImage) object;
+                if (searchImage.imagePath != null) {
+                    info.path = searchImage.imagePath;
                 } else {
-                    recentGifImages.add(0, searchImage);
+                    info.searchImage = searchImage;
+                }
+
+                info.caption = searchImage.caption != null ? searchImage.caption.toString() : null;
+                info.entities = searchImage.entities;
+                info.masks = !searchImage.stickers.isEmpty() ? new ArrayList<>(searchImage.stickers) : null;
+                info.ttl = searchImage.ttl;
+
+                searchImage.date = (int) (System.currentTimeMillis() / 1000);
+                if (searchImage.type == 0) {
+                    webChange = true;
+                    MediaController.SearchImage recentImage = recentImagesWebKeys.get(searchImage.id);
+                    if (recentImage != null) {
+                        recentWebImages.remove(recentImage);
+                        recentWebImages.add(0, recentImage);
+                    } else {
+                        recentWebImages.add(0, searchImage);
+                    }
+                } else if (searchImage.type == 1) {
+                    gifChanged = true;
+                    MediaController.SearchImage recentImage = recentImagesGifKeys.get(searchImage.id);
+                    if (recentImage != null) {
+                        recentGifImages.remove(recentImage);
+                        recentGifImages.add(0, recentImage);
+                    } else {
+                        recentGifImages.add(0, searchImage);
+                    }
                 }
             }
         }
+
         if (webChange) {
-            MessagesStorage.getInstance().putWebRecent(recentWebImages);
+            MessagesStorage.getInstance(currentAccount).putWebRecent(recentWebImages);
         }
         if (gifChanged) {
-            MessagesStorage.getInstance().putWebRecent(recentGifImages);
+            MessagesStorage.getInstance(currentAccount).putWebRecent(recentGifImages);
         }
 
-        delegate.didSelectPhotos(photos, captions, ttls, videos, masks, webPhotos);
+        delegate.didSelectPhotos(media);
     }
 
     private void fixLayout() {
@@ -387,23 +388,46 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 recentImages = recentGifImages;
             }
         }
-        PhotoPickerActivity fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedWebPhotos, recentImages, singlePhoto, allowCaption, chatActivity);
-        fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
-            @Override
-            public void selectedPhotosChanged() {
-                if (pickerBottomLayout != null) {
-                    pickerBottomLayout.updateSelectedCount(selectedPhotos.size() + selectedWebPhotos.size(), true);
-                }
-            }
 
-            @Override
-            public void actionButtonPressed(boolean canceled) {
-                removeSelfFromStack();
-                if (!canceled) {
-                    sendSelectedPhotos();
+        PhotoPickerActivity fragment;
+        if (albumEntry != null) {
+            fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedPhotosOrder, recentImages, selectPhotoType, allowCaption, chatActivity);
+            fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
+                @Override
+                public void selectedPhotosChanged() {
+                    if (pickerBottomLayout != null) {
+                        pickerBottomLayout.updateSelectedCount(selectedPhotos.size(), true);
+                    }
                 }
-            }
-        });
+
+                @Override
+                public void actionButtonPressed(boolean canceled) {
+                    removeSelfFromStack();
+                    if (!canceled) {
+                        sendSelectedPhotos(selectedPhotos, selectedPhotosOrder);
+                    }
+                }
+            });
+        } else {
+            final HashMap<Object, Object> photos = new HashMap<>();
+            final ArrayList<Object> order = new ArrayList<>();
+            fragment = new PhotoPickerActivity(type, albumEntry, photos, order, recentImages, selectPhotoType, allowCaption, chatActivity);
+            fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
+                @Override
+                public void selectedPhotosChanged() {
+
+                }
+
+                @Override
+                public void actionButtonPressed(boolean canceled) {
+                    removeSelfFromStack();
+                    if (!canceled) {
+                        sendSelectedPhotos(photos, order);
+                    }
+                }
+            });
+        }
+        fragment.setMaxSelectedPhotos(maxSelectedPhotos);
         presentFragment(fragment);
     }
 
@@ -422,7 +446,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
         @Override
         public int getItemCount() {
-            if (singlePhoto) {
+            if (!allowSearchImages) {
                 return albumsSorted != null ? (int) Math.ceil(albumsSorted.size() / (float) columnsCount) : 0;
             }
             return 1 + (albumsSorted != null ? (int) Math.ceil(albumsSorted.size() / (float) columnsCount) : 0);
@@ -434,24 +458,14 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             switch (viewType) {
                 case 0: {
                     PhotoPickerAlbumsCell cell = new PhotoPickerAlbumsCell(mContext);
-                    cell.setDelegate(new PhotoPickerAlbumsCell.PhotoPickerAlbumsCellDelegate() {
-                        @Override
-                        public void didSelectAlbum(MediaController.AlbumEntry albumEntry) {
-                            openPhotoPicker(albumEntry, 0);
-                        }
-                    });
+                    cell.setDelegate(albumEntry -> openPhotoPicker(albumEntry, 0));
                     view = cell;
                     break;
                 }
                 case 1:
                 default: {
                     PhotoPickerSearchCell cell = new PhotoPickerSearchCell(mContext, allowGifs);
-                    cell.setDelegate(new PhotoPickerSearchCell.PhotoPickerSearchCellDelegate() {
-                        @Override
-                        public void didPressedSearchButton(int index) {
-                            openPhotoPicker(null, index);
-                        }
-                    });
+                    cell.setDelegate(index -> openPhotoPicker(null, index));
                     view = cell;
                     break;
                 }
@@ -466,7 +480,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 photoPickerAlbumsCell.setAlbumsCount(columnsCount);
                 for (int a = 0; a < columnsCount; a++) {
                     int index;
-                    if (singlePhoto) {
+                    if (!allowSearchImages) {
                         index = position * columnsCount + a;
                     } else {
                         index = (position - 1) * columnsCount + a;
@@ -484,7 +498,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
         @Override
         public int getItemViewType(int i) {
-            if (singlePhoto) {
+            if (!allowSearchImages) {
                 return 0;
             }
             if (i == 0) {

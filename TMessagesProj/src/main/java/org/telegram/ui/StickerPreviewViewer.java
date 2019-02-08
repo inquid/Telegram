@@ -1,9 +1,9 @@
 /*
- * This is the source code of Telegram for Android v. 3.x.x.
+ * This is the source code of Telegram for Android v. 5.x.x.
  * It is licensed under GNU GPL v. 2 or later.
  * You should have received a copy of the license in this archive (see LICENSE).
  *
- * Copyright Nikolai Kudashov, 2013-2017.
+ * Copyright Nikolai Kudashov, 2013-2018.
  */
 
 package org.telegram.ui;
@@ -12,7 +12,6 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -24,6 +23,7 @@ import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -32,11 +32,15 @@ import android.widget.AdapterView;
 import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.DataQuery;
 import org.telegram.messenger.Emoji;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BottomSheet;
 import org.telegram.ui.Cells.ContextLinkCell;
@@ -44,6 +48,8 @@ import org.telegram.ui.Cells.StickerCell;
 import org.telegram.ui.Cells.StickerEmojiCell;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RecyclerListView;
+
+import java.util.ArrayList;
 
 public class StickerPreviewViewer {
 
@@ -60,8 +66,12 @@ public class StickerPreviewViewer {
     }
 
     public interface StickerPreviewViewerDelegate {
-        void sentSticker(TLRPC.Document sticker);
+        void sendSticker(TLRPC.Document sticker, Object parent);
         void openSet(TLRPC.InputStickerSet set);
+        boolean needSend();
+        default boolean needOpen() {
+            return true;
+        }
     }
 
     private static TextPaint textPaint;
@@ -72,6 +82,8 @@ public class StickerPreviewViewer {
     private Runnable openStickerPreviewRunnable;
     private Dialog visibleDialog;
     private StickerPreviewViewerDelegate delegate;
+
+    private int currentAccount;
 
     private ColorDrawable backgroundDrawable = new ColorDrawable(0x71000000);
     private Activity parentActivity;
@@ -90,33 +102,58 @@ public class StickerPreviewViewer {
             if (parentActivity == null || currentSet == null) {
                 return;
             }
+            final boolean inFavs = DataQuery.getInstance(currentAccount).isStickerInFavorites(currentSticker);
             BottomSheet.Builder builder = new BottomSheet.Builder(parentActivity);
-            builder.setItems(new CharSequence[]{
-                    LocaleController.getString("SendStickerPreview", R.string.SendStickerPreview),
-                    LocaleController.formatString("ViewPackPreview", R.string.ViewPackPreview)}, new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, final int which) {
-                    if (parentActivity == null) {
-                        return;
-                    }
+            ArrayList<CharSequence> items = new ArrayList<>();
+            final ArrayList<Integer> actions = new ArrayList<>();
+            ArrayList<Integer> icons = new ArrayList<>();
+            if (delegate != null) {
+                if (delegate.needSend()) {
+                    items.add(LocaleController.getString("SendStickerPreview", R.string.SendStickerPreview));
+                    icons.add(R.drawable.stickers_send);
+                    actions.add(0);
+                }
+                if (delegate.needOpen()) {
+                    items.add(LocaleController.formatString("ViewPackPreview", R.string.ViewPackPreview));
+                    icons.add(R.drawable.stickers_pack);
+                    actions.add(1);
+                }
+            }
+            if (!MessageObject.isMaskDocument(currentSticker) && (inFavs || DataQuery.getInstance(currentAccount).canAddStickerToFavorites())) {
+                items.add(inFavs ? LocaleController.getString("DeleteFromFavorites", R.string.DeleteFromFavorites) : LocaleController.getString("AddToFavorites", R.string.AddToFavorites));
+                icons.add(inFavs ? R.drawable.stickers_unfavorite : R.drawable.stickers_favorite);
+                actions.add(2);
+            }
+            if (items.isEmpty()) {
+                return;
+            }
+            int[] ic = new int[icons.size()];
+            for (int a = 0; a < icons.size(); a++) {
+                ic[a] = icons.get(a);
+            }
+            builder.setItems(items.toArray(new CharSequence[items.size()]), ic, (dialog, which) -> {
+                if (parentActivity == null) {
+                    return;
+                }
+                if (actions.get(which) == 0) {
                     if (delegate != null) {
-                        if (which == 0) {
-                            delegate.sentSticker(currentSticker);
-                        } else if (which == 1) {
-                            delegate.openSet(currentSet);
-                        }
+                        delegate.sendSticker(currentSticker, currentSet);
                     }
+                } else if (actions.get(which) == 1) {
+                    if (delegate != null) {
+                        delegate.openSet(currentSet);
+                    }
+                } else if (actions.get(which) == 2) {
+                    DataQuery.getInstance(currentAccount).addRecentSticker(DataQuery.TYPE_FAVE, currentSet, currentSticker, (int) (System.currentTimeMillis() / 1000), inFavs);
                 }
             });
             visibleDialog = builder.create();
-            visibleDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
-                @Override
-                public void onDismiss(DialogInterface dialog) {
-                    visibleDialog = null;
-                    close();
-                }
+            visibleDialog.setOnDismissListener(dialog -> {
+                visibleDialog = null;
+                close();
             });
             visibleDialog.show();
+            containerView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         }
     };
 
@@ -136,6 +173,10 @@ public class StickerPreviewViewer {
             }
         }
         return localInstance;
+    }
+
+    public static boolean hasInstance() {
+        return Instance != null;
     }
 
     public void reset() {
@@ -159,14 +200,11 @@ public class StickerPreviewViewer {
         delegate = stickerPreviewViewerDelegate;
         if (openStickerPreviewRunnable != null || isVisible()) {
             if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL || event.getAction() == MotionEvent.ACTION_POINTER_UP) {
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (listView instanceof AbsListView) {
-                            ((AbsListView) listView).setOnItemClickListener((AdapterView.OnItemClickListener) listener);
-                        } else if (listView instanceof RecyclerListView) {
-                            ((RecyclerListView) listView).setOnItemClickListener((RecyclerListView.OnItemClickListener) listener);
-                        }
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (listView instanceof AbsListView) {
+                        ((AbsListView) listView).setOnItemClickListener((AdapterView.OnItemClickListener) listener);
+                    } else if (listView instanceof RecyclerListView) {
+                        ((RecyclerListView) listView).setOnItemClickListener((RecyclerListView.OnItemClickListener) listener);
                     }
                 }, 150);
                 if (openStickerPreviewRunnable != null) {
@@ -306,32 +344,29 @@ public class StickerPreviewViewer {
                 startX = x;
                 startY = y;
                 currentStickerPreviewCell = view;
-                openStickerPreviewRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        if (openStickerPreviewRunnable == null) {
-                            return;
-                        }
-                        if (listView instanceof AbsListView) {
-                            ((AbsListView) listView).setOnItemClickListener(null);
-                            ((AbsListView) listView).requestDisallowInterceptTouchEvent(true);
-                        } else if (listView instanceof RecyclerListView) {
-                            ((RecyclerListView) listView).setOnItemClickListener(null);
-                            ((RecyclerListView) listView).requestDisallowInterceptTouchEvent(true);
-                        }
-                        openStickerPreviewRunnable = null;
-                        setParentActivity((Activity) listView.getContext());
-                        setKeyboardHeight(height);
-                        if (currentStickerPreviewCell instanceof StickerEmojiCell) {
-                            open(((StickerEmojiCell) currentStickerPreviewCell).getSticker(), ((StickerEmojiCell) currentStickerPreviewCell).isRecent());
-                            ((StickerEmojiCell) currentStickerPreviewCell).setScaled(true);
-                        } else if (currentStickerPreviewCell instanceof StickerCell) {
-                            open(((StickerCell) currentStickerPreviewCell).getSticker(), false);
-                            ((StickerCell) currentStickerPreviewCell).setScaled(true);
-                        } else if (currentStickerPreviewCell instanceof ContextLinkCell) {
-                            open(((ContextLinkCell) currentStickerPreviewCell).getDocument(), false);
-                            ((ContextLinkCell) currentStickerPreviewCell).setScaled(true);
-                        }
+                openStickerPreviewRunnable = () -> {
+                    if (openStickerPreviewRunnable == null) {
+                        return;
+                    }
+                    if (listView instanceof AbsListView) {
+                        ((AbsListView) listView).setOnItemClickListener(null);
+                        ((AbsListView) listView).requestDisallowInterceptTouchEvent(true);
+                    } else if (listView instanceof RecyclerListView) {
+                        ((RecyclerListView) listView).setOnItemClickListener((RecyclerListView.OnItemClickListener) null);
+                        ((RecyclerListView) listView).requestDisallowInterceptTouchEvent(true);
+                    }
+                    openStickerPreviewRunnable = null;
+                    setParentActivity((Activity) listView.getContext());
+                    setKeyboardHeight(height);
+                    if (currentStickerPreviewCell instanceof StickerEmojiCell) {
+                        open(((StickerEmojiCell) currentStickerPreviewCell).getSticker(), ((StickerEmojiCell) currentStickerPreviewCell).isRecent());
+                        ((StickerEmojiCell) currentStickerPreviewCell).setScaled(true);
+                    } else if (currentStickerPreviewCell instanceof StickerCell) {
+                        open(((StickerCell) currentStickerPreviewCell).getSticker(), false);
+                        ((StickerCell) currentStickerPreviewCell).setScaled(true);
+                    } else if (currentStickerPreviewCell instanceof ContextLinkCell) {
+                        open(((ContextLinkCell) currentStickerPreviewCell).getDocument(), false);
+                        ((ContextLinkCell) currentStickerPreviewCell).setScaled(true);
                     }
                 };
                 AndroidUtilities.runOnUIThread(openStickerPreviewRunnable, 200);
@@ -346,6 +381,8 @@ public class StickerPreviewViewer {
     }
 
     public void setParentActivity(Activity activity) {
+        currentAccount = UserConfig.selectedAccount;
+        centerImage.setCurrentAccount(currentAccount);
         if (parentActivity == activity) {
             return;
         }
@@ -361,14 +398,11 @@ public class StickerPreviewViewer {
         containerView = new FrameLayoutDrawer(activity);
         containerView.setFocusable(false);
         windowView.addView(containerView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
-        containerView.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_POINTER_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                    close();
-                }
-                return true;
+        containerView.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_POINTER_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                close();
             }
+            return true;
         });
 
         windowLayoutParams = new WindowManager.LayoutParams();
@@ -401,29 +435,30 @@ public class StickerPreviewViewer {
         }
 
         TLRPC.InputStickerSet newSet = null;
-        if (isRecent) {
-            for (int a = 0; a < sticker.attributes.size(); a++) {
-                TLRPC.DocumentAttribute attribute = sticker.attributes.get(a);
-                if (attribute instanceof TLRPC.TL_documentAttributeSticker && attribute.stickerset != null) {
-                    newSet = attribute.stickerset;
-                    break;
-                }
-            }
-            if (newSet != null && currentSet != newSet) {
-                try {
-                    if (visibleDialog != null) {
-                        visibleDialog.setOnDismissListener(null);
-                        visibleDialog.dismiss();
-                    }
-                } catch (Exception e) {
-                    FileLog.e(e);
-                }
-                AndroidUtilities.cancelRunOnUIThread(showSheetRunnable);
-                AndroidUtilities.runOnUIThread(showSheetRunnable, 2000);
+        for (int a = 0; a < sticker.attributes.size(); a++) {
+            TLRPC.DocumentAttribute attribute = sticker.attributes.get(a);
+            if (attribute instanceof TLRPC.TL_documentAttributeSticker && attribute.stickerset != null) {
+                newSet = attribute.stickerset;
+                break;
             }
         }
+        //&& (currentSet == null || currentSet.id != newSet.id)
+        if (newSet != null) {
+            try {
+                if (visibleDialog != null) {
+                    visibleDialog.setOnDismissListener(null);
+                    visibleDialog.dismiss();
+                    visibleDialog = null;
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            AndroidUtilities.cancelRunOnUIThread(showSheetRunnable);
+            AndroidUtilities.runOnUIThread(showSheetRunnable, 1300);
+        }
         currentSet = newSet;
-        centerImage.setImage(sticker, null, sticker.thumb.location, null, "webp", 1);
+        TLRPC.PhotoSize thumb = sticker != null ? FileLoader.getClosestPhotoSizeWithSize(sticker.thumbs, 90) : null;
+        centerImage.setImage(sticker, null, thumb, null, "webp", currentSet, 1);
         stickerEmojiLayout = null;
         for (int a = 0; a < sticker.attributes.size(); a++) {
             TLRPC.DocumentAttribute attribute = sticker.attributes.get(a);
@@ -558,12 +593,7 @@ public class StickerPreviewViewer {
             }
             if (showProgress == 0) {
                 AndroidUtilities.unlockOrientation(parentActivity);
-                AndroidUtilities.runOnUIThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        centerImage.setImageBitmap((Bitmap) null);
-                    }
-                });
+                AndroidUtilities.runOnUIThread(() -> centerImage.setImageBitmap((Bitmap) null));
                 try {
                     if (windowView.getParent() != null) {
                         WindowManager wm = (WindowManager) parentActivity.getSystemService(Context.WINDOW_SERVICE);
